@@ -1,4 +1,4 @@
-# GVS - GmailValidationScript
+# GVS - Gmail Validation Script
 
 
 
