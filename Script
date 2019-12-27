@@ -1,0 +1,467 @@
+//el metodo validate debe ser ejecutado automaticamente mediante un activador (o trigger) basado en tiempo. 
+//el mismo se encarga de controlar que no hayan errores tanto en el nombre de los archivos adjuntos en los mails recibidos (siempre y cuando estos tengan formato csv),
+//como tampoco en su contenido, chequeando los cabezales y la cantidad de campos de cada archivo csv adjunto.
+function validate () {
+  //destino al que se enviara el mail en caso de ser validado correctamente.
+  var finalDestiny = "example@domain.edu.uy";
+  //BLOQUE MANIPULACION DE DATOS OBTENIDOS DE GMAIL. 
+  //se obtienen los hilos que contienen mensajes con archivos adjuntos del tipo csv, y son anteriores a un dia.
+  try{
+    var threads = GmailApp.search('in:inbox newer_than:1d');
+  }catch(e){
+    Logger.log("Error en metodo search " + e);
+    var threads = 0; 
+    }
+    //en este for se recorren dichos hilos.
+   for (var t in threads){
+     var label = "";
+     //se obtienen todos los mensajes de cada hilo, se guarda en lastMsg el ultimo mensaje recibido y en from su emisor.
+     var messages = threads[t].getMessages();
+     //el ultimo mensaje (mas reciente) del hilo.
+     var lastMsg = messages[messages.length - 1];
+//     var msgArrayLength = messages.length;
+     var from = lastMsg.getFrom();
+     //se procesaran los adjuntos solo si el emisor del mail es distinto a estas direcciones
+     if(from !== "mailer-daemon@googlemail.com" && from !== "no-reply@accounts.google.com" && from !== "apps-scripts-notifications@google.com" && from !== "secretaria.campusvirtualutu@gmail.com"){
+       //en caso de tenerla, se guarda en label la etiqueta del hilo.
+       if (threads[t].getLabels()[0]){
+         label = threads[t].getLabels()[0].getName();
+       }
+       //se chequea si el ultimo mensaje tiene una estrella para evaluar que el archivo no haya sido ya procesado por el script.
+       if(!lastMsg.isStarred()){
+         //agregamos la estrella para indicar que este mensaje ha sido procesado.
+         lastMsg.star();
+         //se guardan los adjuntos del mensaje.
+         var attachments = lastMsg.getAttachments();
+         //si tiene adjuntos, se chequean su extensiones.
+         if(attachments.length !== 0){
+           var successCount = 0;
+           var errorCount = 0;
+           var notCsvCount = 0;
+           var pdfCount = 0;
+           //se recorren los adjuntos y obtengo de cada uno su contenido, nombre y extension.
+           for(var att in attachments){
+             var errorType = 0;
+             var validFileName = true;
+             var validFileHeader = true;
+             var validFileContent = true;
+             var attachmentContent = attachments[att];
+             var attachmentFullName = attachmentContent.getName();
+             var attachmentNameArray = attachmentFullName.split(".");
+             var attachmentName = attachmentNameArray[0];
+             var attachmentExtension = attachmentNameArray[1];
+             //BLOQUE PROCESAMIENTO ARCHIVO CSV.
+             //si la extension en csv entonces se procesa el contenido del archivo. 
+             if(attachmentExtension === "csv"){
+               var attachment = "";
+               var hasSemiColon = true;
+               //en attachment se almacena el contenido del archivo csv adjunto en formato String.
+               try{
+                 attachment = Utilities.parseCsv(attachmentContent.getDataAsString(), ",").toString();
+               }catch(e){
+                 Logger.log("Error en metodo parseCsv " + e);
+               }
+               //se recorre dicho string buscando puntos y comas.
+               for (var j = 0; j < attachment.length; j++){
+                 if(attachment.indexOf(";") < 0){
+                   hasSemiColon = false;
+                 }
+               }
+               //sino tiene puntos y comas, entonces se editara el String para situarlas en la ubicacion deseada.
+               if(!hasSemiColon){
+                 var commaCount = 0;
+                 //se almacenan en este arreglo las posiciones de las comas que se van sustituir por puntos y comas, se utiliza un contador para exluir las comas que no se desean cambiar. 
+                 var commaPositions = new Array();
+                 for (var i = 0; i < attachment.length; i++){
+                   if(attachment[i] === ","){
+                     commaCount ++;
+                     if(commaCount !== 4){
+                       commaPositions.push(i);
+                     }else{
+                       commaCount = 0;
+                     }
+                   }
+                 }
+                 //se sustituyen finalmente las comas cuyas posiciones estan guardadas en el arreglo, por puntos y comas.
+                 for(var p in commaPositions){
+                   attachment = setCharAt(attachment, commaPositions[p], ';');
+                 }
+               }
+               //BLOQUE VALIDACIONES
+               //valida el nombre del archivo
+               if(!validateFileName(attachmentName) ){
+                 validFileName = false;
+               }
+               //valida los cabezales del archivo
+               if(!validateFileHeader(attachment)){
+                 validFileHeader = false;
+               }
+               //valida el contenido del archivo
+               if(!validateFileContent(attachment)){
+                 validFileContent = false;
+               }
+               //de acuerdo al contenido de los booleanos, guarda en errorType un entero, cuyo valor se utilizara para enviar el mail correspondiente. 
+               errorType = compareValidations(validFileName, validFileHeader, validFileContent);
+               
+               //BLOQUE ENVIO EMAILS
+               //se envia un mail por cada adjunto, cuyo contenido y destino dependera de si estos presentan errores y cuales son. 
+               //sino hay errores en el nombre del archivo, en los cabezales, ni en el contenido. 
+               if(errorType === 0){
+                 //se valida que no haya campos vacios.
+                 if(validateEmptyFields(attachment)){
+                   //se validan los documentos de identidad.
+                   if(validateID(attachment)){
+                     //se envia el archivo al mail destino final.
+                     sendMail(attachmentContent, attachmentFullName, finalDestiny, errorType);
+                     //se notifica al emisor que el archivo ha sido validado correctamente.
+                     sendMail("", attachmentFullName, from, errorType);
+                     successCount ++;
+                   }else{
+                     //se responde el mail al emisor original, indicando el error, documento incorrecto.
+                     errorType = 10;
+                     sendMail("", attachmentFullName, from, errorType);
+                     errorCount ++;
+                   }
+                 }else{
+                   //se responde el mail al emisor original, indicando el error, filas vacias.
+                   errorType = 11;
+                   sendMail("", attachmentFullName, from, errorType);
+                   errorCount ++;
+                 }
+               }else{
+                 //se responde el mail al emisor original, indicando el error correspondiente.
+                 sendMail("", attachmentFullName, from, errorType);
+                 errorCount ++;
+               }
+             }else{
+               //archivo adjunto no csv.
+               errorType = 8;
+               //se reenvia el adjunto no csv al destino final, notificando de esto al emisor.
+               sendMail(attachmentContent, attachmentFullName, finalDestiny, errorType);
+               sendMail("", attachmentFullName, from, errorType);
+               notCsvCount ++;
+               if(attachmentExtension === "pdf"){
+                 pdfCount ++;
+               }
+             }
+           }//fin bucle (attachments)
+           
+           //BLOQUE ETIQUETAS (Y EMAIL "SIN ADJUNTOS")
+           //si una vez validados todos los adjuntos de un mail (concluido el segundo for), no se encontraron errores.
+           if(successCount > 0){
+             //se agrega la etiqueta correspondiente al hilo cuyo email ha sido procesado de manera exitosa.
+             addLabel(threads[t], "Correcto.");
+             threads[t].refresh();
+           }
+           //si existen adjuntos con errores y ninguno correcto, el hilo es enviado a la papelera con la etiqueta correspondiente.
+           if(errorCount > 0){
+             addLabel(threads[t], "Errores.");
+             if(successCount === 0 && pdfCount === 0){
+               threads[t].moveToTrash();
+             }
+             threads[t].refresh();
+           }
+           //si existen adjuntos no csv.
+           if(notCsvCount > 0){
+             if(notCsvCount > pdfCount){
+               //sino hay adjuntos con formato pdf.
+               if(pdfCount === 0){
+                 addLabel(threads[t], "Otro formato.");
+               //si hay adjuntos no csv y pdf.
+               }else{
+                 addLabel(threads[t], "Otro formato.");
+                 addLabel(threads[t], "PDF");
+               }
+             //si solo existen adjuntos con formato pdf.
+             }else{
+               addLabel(threads[t], "PDF");
+             }
+             threads[t].refresh();
+           }
+         //sino hay adjuntos (attachments.length = 0).
+         }else{
+           var errorType = 9;
+           sendMail("", "", from, errorType);
+           addLabel(threads[t], "Sin adjuntos.");
+           threads[t].moveToTrash();
+           threads[t].refresh();
+         }
+       }//fin if (label)
+       //si el emisor es alguna de las casillas automaticas de gmail.
+     }else{//fin if (from)
+       threads[t].moveToTrash();
+       threads[t].refresh();
+     }
+   }//fin bucle (threads)
+}// fin del programa.
+
+//FUNCIONES AUXILIARES
+//valida el nombre del archivo.
+function validateFileName(fileName){
+   //verifico que el nombre del archivo sea valido (del formato EXA_xxx o REU_xxx).
+  if(fileName.indexOf("EXA_") < 0 && fileName.indexOf("REU_") < 0 ){
+    return false;
+  }
+  return true;
+}
+
+//valida los cabezales del archivo, es decir las palabras de la primera fila (asignatura, cedula, nota, fallo).
+//parametro: string, retorno: booleano.
+function validateFileHeader(attachment){
+  if(attachment === ""){
+    return false;
+  }
+  var delimiter = ',';
+  var semiColondelimiter = ';';
+  //en cada posicion del arreglo rawsArray se almacena el contenido de las filas del archivo csv.
+  var rawsArray = attachment.split(delimiter);
+  //se guardan cada uno de los cabezales en headersArray para su posterior validacion.
+  var headersArray = rawsArray[0].split(semiColondelimiter);
+  try{
+    //se chequea si los nombres de los cabezales se encuentran bien escritos (sin importar mayusculas, y tilde en el caso de cedula) 
+    if(!headersArray[0].match(/asignatura/i) || !headersArray[1].match(/cedula|cédula/i) || !headersArray[2].match(/nota/i) || !headersArray[3].match(/fallo/i)){
+      return false;
+    }
+  }
+  catch(e){
+    Logger.log(e);
+    return false;
+  }
+  return true;
+}
+
+//valida que se encuentren 4 campos en cada fila (separados por comas o puntos y coma).   
+//parametro: string, retorno: booleano.
+function validateFileContent(attachment){
+  if(attachment === ""){
+    return false;
+  }
+  var delimiter = ',';
+  //en cada posicion del arreglo rawsArray se almacena el contenido de las filas del archivo csv.
+  var rawsArray = attachment.split(delimiter);
+  try{
+    //recorre cada fila del arreglo
+    for(var i = 1; i <= rawsArray.length - 1; i++){
+      var semiColonCount = 0;
+      var commaCount = 0;
+      //recorre cada posicion de cada fila
+      for(var j = 0; j < rawsArray[i].length; j++){
+        //si en la posicion j de la fila i, hay un punto y coma, agregamos uno al contador.
+        if(rawsArray[i][j] === ";"){
+          semiColonCount ++;
+        }
+        //sino, si en la posicion j de la fila i, hay una coma, agregamos uno al contador.
+        else if(rawsArray[i][j] === ","){
+          commaCount ++;
+        }
+      }
+      //si no hay 3 comas o 3 puntos y coma por fila, entonces hay mas o menos campos de los esperados. 
+      if(semiColonCount !== 3 && commaCount !== 3){
+        return false;
+      }
+    }
+  }
+  catch(e){
+    Logger.log(e);
+    return false;
+  }
+  return true;
+}
+
+//valida que el archivo csv no contenga alguna fila vacia.   
+//parametro: string, retorno: booleano.
+function validateEmptyFields(attachment){
+  var delimiter = ',';
+  var semiColondelimiter = ';';
+  var rawsArray = attachment.split(delimiter);
+  for(var i = 1; i < rawsArray.length; i++){
+    var raw = rawsArray[i].split(semiColondelimiter);
+    var subject = raw[0];
+    var document = raw[1];
+    var note = raw[2];
+    var judgement = raw[3];
+    if(subject === "" && document === "" && note === "" && judgement === ""){
+      Logger.log("fila " + i + " vacia");
+      return false;
+    }
+  }
+  return true;
+}
+
+//valida que el documento de identidad contenga 7 caracteres y estos sean numericos.   
+//parametro: string, retorno: booleano.
+function validateID(attachment){
+  var delimiter = ',';
+  var semiColondelimiter = ';';
+  var rawsArray = attachment.split(delimiter);
+  for(var i = 1; i < rawsArray.length; i++){
+    var raw = rawsArray[i].split(semiColondelimiter);
+    var document = raw[1];
+    var digitCount = 0;
+    for(var j = 0; j < document.length; j++){
+      if('0123456789'.indexOf(document[j]) !== -1){
+        digitCount ++;
+      }
+    }
+    if(digitCount !== 7){
+      return false;
+    }
+  }
+  return true;
+}
+
+//compara los valores de los booleanos ingresados como parámetros, y devuelve el entero correspondiente que se utilizará para definir el mail de error (en caso de tenerlo) que se enviará.
+//parametros: booleanos, retorno: entero.
+//cada entero respresenta un error, o una combinacion de estos, por ej: el numero 4 indica que se encontraron errores en los cabezales (H) y en el contenido (C).
+//entero: NONE: 0, NAME (N): 1, HEADER (H): 2, CONTENT (C): 3, HC: 4, NH: 5, NC: 6, NHC: 7.
+function compareValidations(validFileName, validFileHeader, validFileContent){
+  if(validFileName){
+    if(validFileHeader){
+      if(validFileContent){
+        return 0;
+      }else{
+        return 3;
+      }
+    }else{
+      if(validFileContent){
+        return 2;
+      }else{
+        return 4;
+      }
+    }
+  }else{
+    if(validFileHeader){
+      if(validFileContent){
+        return 1;
+      }else{
+        return 6;
+      }
+    }else{
+      if(validFileContent){
+        return 5;
+      }else{
+        return 7;
+      }
+    }
+  }
+}
+
+
+//si hay un error de validacion, responde el mail al emisor detallando el error correspondiente, si no lo hay es enviado al destino final.
+//en caso de no poder enviar el mail, imprime en la consola la excepcion corresopndiente
+//parametros: attachment: archivo adjunto (solo para el caso en que el archivo se haya validado exitosamente); attachmentName, reciever: string; errorType: entero.
+//entero: NONE: 0, NAME (N): 1, HEADER (H): 2, CONTENT (C): 3, HC: 4, NH: 5, NC: 6, NHC: 7, formato no validado: 8, mail sin archivo adjunto: 9, cedula incorrecta: 10.
+function sendMail(attachment, attachmentName, reciever, errorType){
+  try{
+    switch(errorType) {
+      case 0:
+        if(attachment !== ""){
+          GmailApp.sendEmail(reciever, "Archivo procesado correctamente.", "Por favor, no contestar este mail. El archivo " + attachmentName + " ha sido validado con éxito.", {
+                             attachments: [attachment],
+                             name: "Automatic Validation Script"
+                             });
+        }else{
+          GmailApp.sendEmail(reciever, "Archivo procesado correctamente.", "Por favor, no contestar este mail. El archivo " + attachmentName + " ha sido validado con éxito.", {
+                             name: "Automatic Validation Script"
+                             });
+        }
+        break;
+      case 1:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. " + attachmentName + " no es un nombre de archivo válido.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 2:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. El archivo " + attachmentName + " contiene cabezales que no son válidos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 3:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. El contenido (cantidad de campos por fila o carácter de separación) del archivo " + attachmentName + " no es válido.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 4:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. El archivo " + attachmentName + " tiene contenido (cantidad de campos por fila o carácter de separación) y cabezales que no son válidos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 5:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. El nombre del archivo " + attachmentName + " y alguno de sus cabezales no son válidos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 6:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. Tanto el nombre del archivo " + attachmentName + " como su contenido (cantidad de campos por fila o carácter de separación) no son válidos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 7:
+        GmailApp.sendEmail(reciever, "ERROR al procesar archivo!", "Por favor, no contestar este mail. El nombre del archivo " + attachmentName + ", su contenido (cantidad de campos por fila o carácter de separación) y alguno de sus cabezales no son válidos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 8:
+        if(attachment !== ""){
+          GmailApp.sendEmail(reciever, "Archivo adjunto reenviado.", "Por favor, no contestar este mail. El archivo " + attachmentName + " que se ha recibido, tiene un formato que no es validado por el script, por lo que solo ha sido reenviado.", {
+                             attachments: [attachment],
+                             name: "Automatic Validation Script"
+                             });
+        }else{
+          GmailApp.sendEmail(reciever, "Archivo procesado correctamente.", "Por favor, no contestar este mail. El archivo " + attachmentName + "  que se ha recibido, ha sido procesado de manera exitosa.", {
+                             name: "Automatic Validation Script"
+                             });
+        }
+        break;
+      case 9:
+         GmailApp.sendEmail(reciever, "ERROR! Email sin archivo adjunto.", "Por favor, no contestar este mail. Esta casilla de correo NO acepta emails SIN archivos adjuntos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 10:
+         GmailApp.sendEmail(reciever, "ERROR! Cédula incorrecta.", "Por favor, no contestar este mail. El archivo " + attachmentName + "  que se ha recibido contiene cédulas incorrectas, Estas solo pueden contener 7 dígitos.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+      case 11:
+         GmailApp.sendEmail(reciever, "ERROR! Filas vacías.", "Por favor, no contestar este mail. El archivo " + attachmentName + "  que se ha recibido contiene filas que están completamente vacías, por lo que ha sido rechazado por el script.", {
+                           name: "Automatic Validation Script"
+                           });
+        break;
+    }
+  }
+  catch(e){
+    Logger.log("Error en metodo sendEmail " + e);
+  }
+}
+
+//agrega una etiqueta a los hilos que ya fueron procesados.
+function addLabel(thread, userLabel){
+  GmailApp.createLabel(userLabel);
+  var label = GmailApp.getUserLabelByName(userLabel);
+  thread.addLabel(label);
+}
+
+//elimina etiqueta "Correcto." (metodo exclusivo para realizacion de tests)
+function removeLabel(){
+  var label = GmailApp.getUserLabelByName("Correcto.");
+  if(label){
+    GmailApp.deleteLabel(label);
+  } 
+}
+
+//elimina etiqueta "Errores." (metodo exclusivo para realizacion de tests)
+function removeErrorLabel(){
+  var label = GmailApp.getUserLabelByName("Errores.");
+  if(label){
+    GmailApp.deleteLabel(label);
+  } 
+}
+
+//posiciona el caracter chr en el lugar index del string str.
+function setCharAt(str,index,chr) {
+    if(index > str.length-1) return str;
+    return str.substr(0,index) + chr + str.substr(index+1);
+}
+
+
