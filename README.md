@@ -6,7 +6,7 @@ This Apps Script extension allows automating several office tasks, through Gmail
 
 Given that the project was developed for a specific real-world context, the aim of sharing this code is to help beginners determine Google Apps Scripts platform’s scope and flexibility, not only by understanding and getting involved with it, but also by working with JavaScript standard built-in objects, methods and properties. 
 
-I would also like to mention that even though the code is properly commented, these comments are written in Spanish, so feel free to contact me on [LinkedIn](https://www.linkedin.com/in/matias-lopez-revoreda/) if you have any questions.
+It is also worth mentioning that even though the code is properly commented, these comments are written in Spanish, so feel free to contact me on [LinkedIn](https://www.linkedin.com/in/matias-lopez-revoreda/) if you have any questions.
 
 
 
