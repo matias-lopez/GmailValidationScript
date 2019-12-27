@@ -18,7 +18,7 @@ I would also like to mention that even though the code is properly commented, th
 * If the service is not installed: go to Connect more apps and search for Apps Scripts.
 * Install the service by clicking on the Connect button.
 * New > More > Google Apps Script to open editor.
-* To enter the Developer Hub (console), just paste: (https://script.google.com/home) on the navigation bar.
+* To enter the Developer Hub (console), just paste: https://script.google.com/home on the navigation bar.
 * Creating and running a Trigger: from the console, go to My Projects and select the desired project.
 * Then Project Details > Triggers > Add Trigger.
 * A new window will open where configuration settings can be applied.
