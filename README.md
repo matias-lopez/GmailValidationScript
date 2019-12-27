@@ -1,15 +1,17 @@
 # GVS - GmailValidationScript
 
 
+
 This Apps Script extension allows automating several office tasks, through Gmail’s elements manipulation, making different kinds of requests to its API, analyzing and responding to incoming emails and extracting their attachments to validate them. The script also uses a labelling system in order to identify previously processed threads and classify them according to validation results.
 
 Given that the project was developed for a specific real-world context, the aim of sharing this code is to help beginners determine Google Apps Scripts platform’s scope and flexibility, not only by understanding and getting involved with it, but also by working with JavaScript standard built-in objects, methods and properties. 
 
-I would also like to mention that even though the code is properly commented, these comments are written in Spanish, so feel free to contact me on [LinkedIn] (https://www.linkedin.com/in/matias-lopez-revoreda/) if you have any questions.
+I would also like to mention that even though the code is properly commented, these comments are written in Spanish, so feel free to contact me on [LinkedIn](https://www.linkedin.com/in/matias-lopez-revoreda/) if you have any questions.
 
 
 
-## GVS Step by step installation and configuration guide:
+
+## GVS - Step by step installation and configuration guide:
 
 
 * Access the relevant Google Drive account.
